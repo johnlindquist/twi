@@ -191,11 +191,19 @@ The browser is required for scraping tweets.
 
 	let tweets: string[] = [];
 	try {
-		tweets = await scrapeTweets(String(argv._[0]), flags, spinner);
-		spinner.stop("Tweets scraped successfully.");
+		tweets = await scrapeTweets(String(argv._[0]), flags, (progress) => {
+			spinner.message(`Scraping tweets... Found ${progress} tweets so far`);
+		});
+		spinner.stop("Tweets scraped successfully!");
 	} catch (err) {
 		spinner.stop("Failed to scrape tweets.");
-		p.cancel(String(err));
+		if (err instanceof Error && err.message.includes("Timeout")) {
+			p.cancel(
+				`${err.message}\nTry increasing the timeout with --timeout flag`,
+			);
+		} else {
+			p.cancel(String(err));
+		}
 		process.exit(1);
 	}
 
@@ -230,29 +238,84 @@ The browser is required for scraping tweets.
 async function scrapeTweets(
 	username: string,
 	flags: IngestFlags,
-	spinner: ReturnType<typeof p.spinner>,
+	onProgress: (count: number) => void,
 ): Promise<string[]> {
-	const browser = await chromium.launch();
+	const browser = await chromium.launch({
+		headless: process.env.VITEST !== "1", // Show browser during tests
+		args: [
+			"--window-size=1920,1080",
+			"--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		],
+	});
 	const page = await browser.newPage();
 	const tweets: string[] = [];
 
 	try {
-		await page.goto(`https://twitter.com/${username}`);
+		// Set viewport to match window size
+		await page.setViewportSize({ width: 1920, height: 1080 });
 
-		// Update spinner message
-		spinner.start("Waiting for Twitter to load (this can take a while)...");
+		// Slow down operations in debug mode or during tests
+		if (flags.debug || process.env.VITEST === "1") {
+			await page.setDefaultTimeout(0); // No timeout in debug/test
+			await page.setDefaultNavigationTimeout(0); // No navigation timeout in debug/test
+		} else {
+			await page.setDefaultTimeout((flags.timeout || 30) * 1000);
+			await page.setDefaultNavigationTimeout((flags.timeout || 30) * 1000);
+		}
+
+		// Go to Twitter and wait for network to be idle
+		await page.goto(`https://twitter.com/${username}`, {
+			waitUntil: "networkidle",
+		});
+
+		if (flags.debug) {
+			const content = await page.content();
+			console.log("[DEBUG] Page Content:", content);
+		}
+
+		// First check for login wall
+		const loginWall = await page.$('div[data-testid="loginButton"]');
+		if (loginWall) {
+			if (flags.debug) {
+				console.log("[DEBUG] Found login wall, attempting to bypass...");
+			}
+			// Try to close the login dialog if it exists
+			const closeButton = await page.$('div[aria-label="Close"]');
+			if (closeButton) {
+				await closeButton.click();
+				await page.waitForTimeout(1000);
+			}
+		}
 
 		try {
 			// Wait for tweets to load with user-specified timeout
 			await page.waitForSelector('article[data-testid="tweet"]', {
 				timeout: (flags.timeout || 30) * 1000,
+				state: "attached", // Wait for element to be actually attached to DOM
 			});
 
-			spinner.start("Found tweets! Scraping...");
+			if (flags.debug) {
+				const tweets = await page.$$eval(
+					'article[data-testid="tweet"]',
+					(elements) => {
+						return elements.map((el) => ({
+							html: el.innerHTML,
+							text: el.textContent,
+						}));
+					},
+				);
+				console.log("[DEBUG] Found Tweets:", tweets);
+			}
 
 			let lastTweetCount = 0;
+			let retryCount = 0;
+			const maxRetries = 3;
+			let noNewTweetsTime = Date.now();
 
-			while (tweets.length < flags.maxTweets) {
+			while (tweets.length < flags.maxTweets && retryCount < maxRetries) {
+				// Wait a bit for dynamic content to load
+				await page.waitForTimeout(2000);
+
 				const newTweets = await page.$$eval(
 					'article[data-testid="tweet"]',
 					(elements) => {
@@ -270,21 +333,36 @@ async function scrapeTweets(
 				for (const t of newTweets) {
 					if (!tweets.some((existing) => existing === t.text)) {
 						tweets.push(t.text);
+						onProgress(tweets.length);
+						noNewTweetsTime = Date.now(); // Reset timer when we find new tweets
 					}
 				}
 
 				if (tweets.length === lastTweetCount) {
-					break; // No new tweets found after scrolling
+					retryCount++;
+					// If we haven't found new tweets in 10 seconds, break
+					if (Date.now() - noNewTweetsTime > 10000) {
+						break;
+					}
+					if (retryCount < maxRetries) {
+						// Try scrolling more
+						await page.evaluate(() => window.scrollBy(0, 2000));
+						await page.waitForTimeout(2000);
+					}
+				} else {
+					retryCount = 0;
 				}
 
 				lastTweetCount = tweets.length;
-				await page.evaluate(() => window.scrollBy(0, 1000));
-				await page.waitForTimeout(1000);
+
+				if (flags.debug) {
+					console.log(`[DEBUG] Found ${tweets.length} tweets so far...`);
+				}
 			}
 		} catch (err) {
 			if (err instanceof Error && err.message.includes("Timeout")) {
-				spinner.start("Timeout reached. Processing collected tweets...");
 				// Try to get any tweets that loaded before timeout
+				const pageContent = await page.content();
 				const partialTweets = await page.$$eval(
 					'article[data-testid="tweet"]',
 					(elements) => {
@@ -301,15 +379,31 @@ async function scrapeTweets(
 					...partialTweets.filter((text) => text && !tweets.includes(text)),
 				);
 
+				onProgress(tweets.length);
+
 				if (tweets.length === 0) {
+					if (flags.debug) {
+						console.log("[DEBUG] Page Content at Error:", pageContent);
+					}
+
+					// Check if we got the unsupported browser error
+					if (pageContent.includes("This browser is no longer supported")) {
+						throw new Error(
+							"Twitter rejected our browser. Try updating the user agent string or using a different browser profile.",
+						);
+					}
+
+					// Check for login wall
+					if (await page.$('div[data-testid="loginButton"]')) {
+						throw new Error(
+							"Twitter is requiring login. Try increasing the timeout or using a different browser profile.",
+						);
+					}
+
 					throw new Error(
 						"No tweets could be loaded before timeout. Try increasing the timeout with --timeout flag",
 					);
 				}
-
-				spinner.start(
-					`Timeout reached. Found ${tweets.length} tweets before timeout.`,
-				);
 			} else {
 				throw err;
 			}
