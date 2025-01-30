@@ -54,6 +54,7 @@ type IngestFlags = {
 	noEditor?: boolean;
 	clipboard?: boolean;
 	install?: boolean;
+	timeout?: number;
 };
 
 /** YARGS Setup ************************************/
@@ -68,6 +69,12 @@ const argv = yargs(hideBin(process.argv))
 		type: "number",
 		default: 50,
 		describe: "Maximum number of tweets to scrape",
+	})
+	.option("timeout", {
+		alias: "t",
+		type: "number",
+		default: 30,
+		describe: "Timeout in seconds for initial page load",
 	})
 	.option("debug", {
 		type: "boolean",
@@ -171,6 +178,7 @@ The browser is required for scraping tweets.
 		noEditor: argv["no-editor"],
 		clipboard: argv.clipboard,
 		install: argv.install,
+		timeout: argv.timeout,
 	};
 
 	if (flags.debug) {
@@ -226,6 +234,7 @@ async function scrapeTweets(
 ): Promise<string[]> {
 	const browser = await chromium.launch();
 	const page = await browser.newPage();
+	const tweets: string[] = [];
 
 	try {
 		await page.goto(`https://twitter.com/${username}`);
@@ -233,44 +242,77 @@ async function scrapeTweets(
 		// Update spinner message
 		spinner.start("Waiting for Twitter to load (this can take a while)...");
 
-		// Wait for tweets to load with a longer timeout
-		await page.waitForSelector('article[data-testid="tweet"]', {
-			timeout: 30000, // 30 seconds
-		});
+		try {
+			// Wait for tweets to load with user-specified timeout
+			await page.waitForSelector('article[data-testid="tweet"]', {
+				timeout: (flags.timeout || 30) * 1000,
+			});
 
-		spinner.start("Found tweets! Scraping...");
+			spinner.start("Found tweets! Scraping...");
 
-		const tweets: string[] = [];
-		let lastTweetCount = 0;
+			let lastTweetCount = 0;
 
-		while (tweets.length < flags.maxTweets) {
-			const newTweets = await page.$$eval(
-				'article[data-testid="tweet"]',
-				(elements) => {
-					return elements.map((el) => {
-						const text =
-							el.querySelector('div[data-testid="tweetText"]')?.textContent ||
-							"";
-						const time =
-							el.querySelector("time")?.getAttribute("datetime") || "";
-						return { text, time };
-					});
-				},
-			);
+			while (tweets.length < flags.maxTweets) {
+				const newTweets = await page.$$eval(
+					'article[data-testid="tweet"]',
+					(elements) => {
+						return elements.map((el) => {
+							const text =
+								el.querySelector('div[data-testid="tweetText"]')?.textContent ||
+								"";
+							const time =
+								el.querySelector("time")?.getAttribute("datetime") || "";
+							return { text, time };
+						});
+					},
+				);
 
-			for (const t of newTweets) {
-				if (!tweets.some((existing) => existing === t.text)) {
-					tweets.push(t.text);
+				for (const t of newTweets) {
+					if (!tweets.some((existing) => existing === t.text)) {
+						tweets.push(t.text);
+					}
 				}
-			}
 
-			if (tweets.length === lastTweetCount) {
-				break; // No new tweets found after scrolling
-			}
+				if (tweets.length === lastTweetCount) {
+					break; // No new tweets found after scrolling
+				}
 
-			lastTweetCount = tweets.length;
-			await page.evaluate(() => window.scrollBy(0, 1000));
-			await page.waitForTimeout(1000);
+				lastTweetCount = tweets.length;
+				await page.evaluate(() => window.scrollBy(0, 1000));
+				await page.waitForTimeout(1000);
+			}
+		} catch (err) {
+			if (err instanceof Error && err.message.includes("Timeout")) {
+				spinner.start("Timeout reached. Processing collected tweets...");
+				// Try to get any tweets that loaded before timeout
+				const partialTweets = await page.$$eval(
+					'article[data-testid="tweet"]',
+					(elements) => {
+						return elements.map((el) => {
+							const text =
+								el.querySelector('div[data-testid="tweetText"]')?.textContent ||
+								"";
+							return text;
+						});
+					},
+				);
+
+				tweets.push(
+					...partialTweets.filter((text) => text && !tweets.includes(text)),
+				);
+
+				if (tweets.length === 0) {
+					throw new Error(
+						"No tweets could be loaded before timeout. Try increasing the timeout with --timeout flag",
+					);
+				}
+
+				spinner.start(
+					`Timeout reached. Found ${tweets.length} tweets before timeout.`,
+				);
+			} else {
+				throw err;
+			}
 		}
 
 		return tweets.slice(0, flags.maxTweets);
