@@ -195,6 +195,31 @@ The browser is required for scraping tweets.
 			spinner.message(`Scraping tweets... Found ${progress} tweets so far`);
 		});
 		spinner.stop("Tweets scraped successfully!");
+
+		// Build final output
+		const markdown = generateMarkdown(String(argv._[0]), tweets);
+		const fileName = `tweetingest-${argv._[0]}-${Date.now()}.md`;
+		const filePath = join(DEFAULT_SEARCHES_DIR, fileName);
+		writeFileSync(filePath, markdown, "utf8");
+
+		// Possibly copy to clipboard
+		if (flags.clipboard) {
+			try {
+				await clipboard.write(markdown);
+				p.note("Output copied to clipboard!");
+			} catch (err) {
+				p.note(`Failed to copy to clipboard: ${(err as Error).message}`);
+			}
+		}
+
+		// Print results path
+		if (flags.pipe) {
+			console.log(markdown);
+		} else {
+			console.log(`${RESULTS_SAVED_MARKER} ${filePath}`);
+		}
+
+		p.outro("Done! 🎉");
 	} catch (err) {
 		spinner.stop("Failed to scrape tweets.");
 		if (err instanceof Error && err.message.includes("Timeout")) {
@@ -206,31 +231,6 @@ The browser is required for scraping tweets.
 		}
 		process.exit(1);
 	}
-
-	// Build final output
-	const markdown = generateMarkdown(String(argv._[0]), tweets);
-	const fileName = `tweetingest-${argv._[0]}-${Date.now()}.md`;
-	const filePath = join(DEFAULT_SEARCHES_DIR, fileName);
-	writeFileSync(filePath, markdown, "utf8");
-
-	// Possibly copy to clipboard
-	if (flags.clipboard) {
-		try {
-			await clipboard.write(markdown);
-			p.note("Output copied to clipboard!");
-		} catch (err) {
-			p.note(`Failed to copy to clipboard: ${(err as Error).message}`);
-		}
-	}
-
-	// Print results path
-	if (flags.pipe) {
-		console.log(markdown);
-	} else {
-		console.log(`${RESULTS_SAVED_MARKER} ${filePath}`);
-	}
-
-	p.outro("Done! 🎉");
 })();
 
 /** Tweet Scraping Logic ***************************/
