@@ -5,26 +5,26 @@ A CLI tool to scrape and gather tweets from a Twitter (X) user's timeline (witho
 ## Installation
 
 ```bash
-pnpm install -g @example/tweetingest
+pnpm install -g @johnlindquist/twi
 ```
 
 ## Usage
 
 ```bash
-tweetingest [options] <username>
+twi [options] <username>
 ```
 
 ### Examples
 
 ```bash
 # Scrape 50 tweets from Elon
-tweetingest elonmusk
+twi elonmusk
 
 # Scrape up to 150 tweets, no editor
-tweetingest jack --max-tweets 150 --no-editor
+twi jack --max-tweets 150 --no-editor
 
 # Print everything to console (still saves file)
-tweetingest yourUser --pipe
+twi yourUser --pipe
 ```
 
 ### Options
@@ -52,8 +52,8 @@ pnpm dev -- your_username
 pnpm build
 
 # Link CLI
-pnpm link
-tweetingest your_username
+pnpm link --global
+twi your_username
 ```
 
 MIT License 
