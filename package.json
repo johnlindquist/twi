@@ -1,11 +1,11 @@
 {
-  "name": "@johnlindquist/tweetingest",
+  "name": "@johnlindquist/twi",
   "version": "0.1.0",
   "description": "A CLI tool to scrape tweets from a specific user using puppeteer.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "tweetingest": "./dist/index.js"
+    "twi": "./dist/index.js"
   },
   "scripts": {
     "dev": "pnpm node index.ts",
