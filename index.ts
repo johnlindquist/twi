@@ -183,7 +183,7 @@ The browser is required for scraping tweets.
 
 	let tweets: string[] = [];
 	try {
-		tweets = await scrapeTweets(String(argv._[0]), flags);
+		tweets = await scrapeTweets(String(argv._[0]), flags, spinner);
 		spinner.stop("Tweets scraped successfully.");
 	} catch (err) {
 		spinner.stop("Failed to scrape tweets.");
@@ -222,16 +222,23 @@ The browser is required for scraping tweets.
 async function scrapeTweets(
 	username: string,
 	flags: IngestFlags,
+	spinner: ReturnType<typeof p.spinner>,
 ): Promise<string[]> {
 	const browser = await chromium.launch();
 	const page = await browser.newPage();
 
 	try {
 		await page.goto(`https://twitter.com/${username}`);
-		// Wait for tweets to load
+
+		// Update spinner message
+		spinner.start("Waiting for Twitter to load (this can take a while)...");
+
+		// Wait for tweets to load with a longer timeout
 		await page.waitForSelector('article[data-testid="tweet"]', {
-			timeout: 5000,
+			timeout: 30000, // 30 seconds
 		});
+
+		spinner.start("Found tweets! Scraping...");
 
 		const tweets: string[] = [];
 		let lastTweetCount = 0;
