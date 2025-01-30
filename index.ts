@@ -9,7 +9,7 @@
     $ tweetingest --clipboard username
 
   1) Installs required libs:
-     pnpm add @clack/prompts conf env-paths date-fns puppeteer clipboardy
+     pnpm add @clack/prompts conf env-paths date-fns playwright clipboardy
 
   2) Make executable and run:
      chmod +x tweetingest-cli.js
@@ -23,7 +23,7 @@ import { format } from "date-fns";
 import envPaths from "env-paths";
 import { fileURLToPath } from "node:url";
 import clipboard from "clipboardy";
-import puppeteer from "puppeteer";
+import { chromium } from "playwright";
 import { dirname, join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
@@ -169,7 +169,7 @@ async function scrapeTweets(
 	username: string,
 	flags: IngestFlags,
 ): Promise<string[]> {
-	const browser = await puppeteer.launch({ headless: true });
+	const browser = await chromium.launch();
 	const page = await browser.newPage();
 
 	try {
@@ -208,10 +208,8 @@ async function scrapeTweets(
 			}
 
 			lastTweetCount = tweets.length;
-			await page.evaluate(() => {
-				window.scrollBy(0, 1000);
-			});
-			await new Promise((resolve) => setTimeout(resolve, 1000));
+			await page.evaluate(() => window.scrollBy(0, 1000));
+			await page.waitForTimeout(1000);
 		}
 
 		return tweets.slice(0, flags.maxTweets);
