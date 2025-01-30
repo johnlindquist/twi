@@ -18,13 +18,13 @@ twi [options] <username>
 
 ```bash
 # Scrape 50 tweets from Elon
-twi elonmusk
+twi johnlindquist
 
 # Scrape up to 150 tweets, no editor
-twi jack --max-tweets 150 --no-editor
+twi johnlindquist --max-tweets 150 --no-editor
 
 # Print everything to console (still saves file)
-twi yourUser --pipe
+twi johnlindquist --pipe
 ```
 
 ### Options
