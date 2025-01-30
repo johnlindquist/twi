@@ -1,6 +1,5 @@
 {
   "name": "@johnlindquist/twi",
-  "version": "0.1.0",
   "description": "A CLI tool to scrape tweets from a specific user using puppeteer.",
   "type": "module",
   "private": false,
@@ -29,6 +28,7 @@
     "conf": "^12.0.0",
     "date-fns": "^3.0.6",
     "env-paths": "^3.0.0",
+    "playwright": "^1.50.0",
     "yargs": "^17.7.2"
   },
   "devDependencies": {
@@ -38,7 +38,6 @@
     "@typescript-eslint/eslint-plugin": "^6.17.0",
     "@typescript-eslint/parser": "^6.17.0",
     "eslint": "^8.56.0",
-    "playwright": "^1.50.0",
     "semantic-release": "^23.0.0",
     "typescript": "^5.3.3",
     "vitest": "^1.1.3"
