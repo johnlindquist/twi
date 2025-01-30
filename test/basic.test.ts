@@ -99,9 +99,11 @@ describe("tweetingest CLI", () => {
 		} else if (isLoginWall) {
 			expect(result.stdout).toContain("Failed to scrape tweets");
 			expect(result.stdout).toContain("Twitter is requiring login");
+			expect(result.stdout).not.toContain("Done! 🎉"); // Should not show success message
 		} else {
 			expect(result.stdout).toContain("Failed to scrape tweets");
 			expect(result.stdout).toContain("Twitter rejected our browser");
+			expect(result.stdout).not.toContain("Done! 🎉"); // Should not show success message
 		}
 	});
 });
