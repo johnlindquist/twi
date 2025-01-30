@@ -7,6 +7,7 @@
     $ tweetingest --max-tweets 50 https://twitter.com/user
     $ tweetingest --debug --pipe @username
     $ tweetingest --clipboard username
+    $ tweetingest --install (installs required browser)
 
   1) Installs required libs:
      pnpm add @clack/prompts conf env-paths date-fns playwright clipboardy
@@ -26,6 +27,7 @@ import clipboard from "clipboardy";
 import { chromium } from "playwright";
 import { dirname, join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 
 // Read package.json for version
 const __filename = fileURLToPath(import.meta.url);
@@ -51,6 +53,7 @@ type IngestFlags = {
 	debug?: boolean;
 	noEditor?: boolean;
 	clipboard?: boolean;
+	install?: boolean;
 };
 
 /** YARGS Setup ************************************/
@@ -89,14 +92,64 @@ const argv = yargs(hideBin(process.argv))
 		default: false,
 		describe: "Copy final output to clipboard",
 	})
+	.option("install", {
+		type: "boolean",
+		default: false,
+		describe: "Install required browser",
+	})
 	.help()
 	.alias("h", "help")
 	.parseSync();
 
 /** Main CLI Logic *********************************/
 
+async function checkBrowserInstallation() {
+	try {
+		const browser = await chromium.launch();
+		await browser.close();
+		return true;
+	} catch (err) {
+		return false;
+	}
+}
+
+async function installBrowser() {
+	try {
+		p.note("Installing Chromium browser...");
+		execSync("playwright install chromium", { stdio: "inherit" });
+		p.note("Browser installed successfully!");
+		return true;
+	} catch (err) {
+		p.cancel(`Failed to install browser: ${err}`);
+		return false;
+	}
+}
+
 (async function main() {
 	p.intro("🐦 TweetIngest CLI");
+
+	// Handle --install flag
+	if (argv.install) {
+		await installBrowser();
+		process.exit(0);
+	}
+
+	// Check browser installation
+	const isBrowserInstalled = await checkBrowserInstallation();
+	if (!isBrowserInstalled) {
+		p.note(`
+Chromium browser is not installed. You can install it by:
+
+1. Running this command:
+   twi --install
+
+2. Or manually running:
+   pnpm rebuild -g @johnlindquist/twi
+
+The browser is required for scraping tweets.
+		`);
+		process.exit(1);
+	}
 
 	const username = argv._[0];
 	if (!username) {
@@ -117,6 +170,7 @@ const argv = yargs(hideBin(process.argv))
 		pipe: argv.pipe,
 		noEditor: argv["no-editor"],
 		clipboard: argv.clipboard,
+		install: argv.install,
 	};
 
 	if (flags.debug) {
