@@ -27,6 +27,8 @@ jobs:
         with:
           version: 8
       - run: pnpm install
+      - name: Install Playwright browsers
+        run: pnpm playwright install chromium
       - run: pnpm build
       - run: pnpm test
       - name: Verify CLI
